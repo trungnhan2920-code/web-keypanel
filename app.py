@@ -146,7 +146,8 @@ class WSGIApp:
                 open(os.path.join(HERE, "data", "error.log"), "a", encoding="utf-8").write(tb + "\n")
             except Exception:
                 pass
-            out = _json(fail("server error"))
+            # tạm: lộ traceback để debug Render (bỏ sau khi fix)
+            out = _json(fail("server error: %s" % tb[-800:]))
             return _resp(start_response, "500 Internal Server Error", out)
 
     def _dispatch(self, environ, start_response):
