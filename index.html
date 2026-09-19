@@ -1,0 +1,260 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>BRMods Key Panel v2</title>
+<style>
+  :root{--bg:#0d1117;--panel:#161b22;--border:#30363d;--txt:#e6edf3;--mut:#8b949e;
+        --accent:#238636;--accent2:#1f6feb;--danger:#da3633;--warn:#d29922;--ok:#3fb950}
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{background:var(--bg);color:var(--txt);font:14px/1.55 "Segoe UI",system-ui,sans-serif;padding:24px;max-width:1100px;margin:0 auto}
+  h1{font-size:20px;margin-bottom:4px}
+  .sub{color:var(--mut);margin-bottom:18px}
+  .card{background:var(--panel);border:1px solid var(--border);border-radius:10px;padding:18px;margin-bottom:16px}
+  .card h2{font-size:14px;margin-bottom:12px;color:var(--mut);text-transform:uppercase;letter-spacing:.4px}
+  .row{display:flex;gap:10px;flex-wrap:wrap;align-items:center}
+  input,select,button{background:#0d1117;border:1px solid var(--border);color:var(--txt);border-radius:6px;padding:8px 10px;font-size:14px}
+  input:focus,select:focus{outline:none;border-color:var(--accent2)}
+  button{cursor:pointer;background:var(--accent);border-color:var(--accent);font-weight:600}
+  button:hover{filter:brightness(1.15)}
+  button.ghost{background:transparent;border-color:var(--border);font-weight:400}
+  button.danger{background:var(--danger);border-color:var(--danger)}
+  button.warn{background:var(--warn);border-color:var(--warn);color:#1c1200}
+  table{width:100%;border-collapse:collapse;font-size:13px}
+  th,td{text-align:left;padding:8px 10px;border-bottom:1px solid var(--border);vertical-align:middle}
+  th{color:var(--mut);font-weight:600;white-space:nowrap}
+  tr:hover td{background:#1c2128}
+  .badge{display:inline-block;padding:2px 8px;border-radius:20px;font-size:11px;font-weight:600}
+  .badge.active{background:#12351b;color:var(--ok)}
+  .badge.revoked{background:#3d1210;color:#f85149}
+  .badge.lifetime{background:#2a1a05;color:var(--warn)}
+  .stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px}
+  .stat{background:#0d1117;border:1px solid var(--border);border-radius:8px;padding:12px}
+  .stat b{display:block;font-size:24px}
+  .stat span{color:var(--mut);font-size:12px}
+  #login{max-width:380px;margin:80px auto}
+  #login .card{padding:28px}
+  #login h1{margin-bottom:16px}
+  .msg{display:none;padding:10px 12px;border-radius:6px;margin-top:12px;font-size:13px}
+  .msg.show{display:block}
+  .msg.ok{background:#12351b;color:var(--ok)}
+  .msg.err{background:#3d1210;color:#f85149}
+  .mut{color:var(--mut);font-size:12px}
+  .actions{white-space:nowrap}
+  .actions button{margin-left:4px;padding:4px 9px;font-size:12px}
+  .copy{background:transparent;border-color:var(--border);cursor:pointer;padding:2px 6px}
+  .search{margin-bottom:12px}
+  #filters{display:flex;gap:10px;margin-bottom:14px}
+  .empty{padding:24px;text-align:center;color:var(--mut)}
+  .topbar{display:flex;justify-content:space-between;align-items:center;margin-bottom:16px}
+  .topbar .who{color:var(--mut);font-size:13px}
+  #importBox{margin-top:10px}
+  textarea{background:#0d1117;border:1px solid var(--border);color:var(--txt);border-radius:6px;padding:8px;width:100%;font:12px Consolas,monospace;min-height:90px}
+  label{display:block;margin:8px 0 4px;font-size:12px;color:var(--mut)}
+</style>
+</head>
+<body>
+
+<!-- LOGIN -->
+<div id="login" style="display:none">
+  <div class="card">
+    <h1>🔑 BRMods Key Panel v2</h1>
+    <label>Tên tài khoản</label>
+    <input id="lUser" autocomplete="username" style="width:100%">
+    <label>Mật khẩu</label>
+    <input id="lPass" type="password" autocomplete="current-password" style="width:100%"
+           onkeydown="if(event.key==='Enter')doLogin()">
+    <div class="row" style="margin-top:14px">
+      <button onclick="doLogin()" style="flex:1">Đăng nhập</button>
+    </div>
+    <div id="loginMsg" class="msg"></div>
+  </div>
+</div>
+
+<!-- MAIN -->
+<div id="main" style="display:none">
+  <div class="topbar">
+    <div>
+      <h1>BRMods Key Panel <span class="mut">v2 — key time thật</span></h1>
+      <div class="sub">Tạo/gia hạn/thu hồi key · đồng bộ auth-swap qua Export/Import · <span class="mut">user=key · pass=1</span></div>
+    </div>
+    <div class="row">
+      <span class="who" id="whoAmI"></span>
+      <button class="ghost" onclick="showChangePw()">Đổi mật khẩu</button>
+      <button class="ghost" onclick="logout()">Đăng xuất</button>
+    </div>
+  </div>
+
+  <div class="card">
+    <h2>Thống kê</h2>
+    <div class="stats" id="stats"></div>
+  </div>
+
+  <div class="card">
+    <h2>Tạo key</h2>
+    <div class="row">
+      <input id="newName" placeholder="Tên key (VD: USER-ADMIN)" style="flex:2;min-width:200px">
+      <select id="newPack">
+        <option value="1">1 ngày</option><option value="3">3 ngày</option>
+        <option value="7" selected>7 ngày</option><option value="30">30 ngày</option>
+        <option value="9999">Lifetime (9999)</option>
+      </select>
+      <input id="newNote" placeholder="Ghi chú" style="flex:2;min-width:160px">
+      <button onclick="doCreate()">Tạo key</button>
+    </div>
+    <div id="createMsg" class="msg"></div>
+  </div>
+
+  <div class="card">
+    <h2>Danh sách key</h2>
+    <div class="row search">
+      <input id="q" placeholder="🔍 Tìm tên / note..." style="flex:1" oninput="renderKeys()">
+      <button class="ghost" onclick="downloadExport()">⬇ Export JSON</button>
+      <button class="ghost" onclick="toggleImport()">⬆ Import JSON</button>
+    </div>
+    <div id="importBox" style="display:none">
+      <textarea id="importText" placeholder='[{"name":"KEY1","pack":7,"expires_at":1790410000,"status":"active","hwid":"*","note":""}]'></textarea>
+      <div class="row" style="margin-top:8px">
+        <button onclick="doImport()">Import</button>
+        <span class="mut">(upsert — bỏ qua key trùng tên)</span>
+      </div>
+    </div>
+    <div id="filters">
+      <button class="ghost" data-f="all" onclick="setFilter('all',this)">Tất cả</button>
+      <button class="ghost" data-f="active" onclick="setFilter('active',this)">Active</button>
+      <button class="ghost" data-f="revoked" onclick="setFilter('revoked',this)">Revoked</button>
+    </div>
+    <table>
+      <thead><tr><th>Key</th><th>Gói</th><th>Hết hạn</th><th>Còn lại</th><th>Trạng thái</th><th>HWID</th><th>Ghi chú</th><th>Thao tác</th></tr></thead>
+      <tbody id="keysBody"></tbody>
+    </table>
+    <div id="emptyRow" class="empty" style="display:none">Chưa có key nào.</div>
+  </div>
+</div>
+
+<div id="chgpw" style="display:none">
+  <div class="card" style="max-width:420px;margin:60px auto">
+    <h2>Đổi mật khẩu</h2>
+    <label>Mật khẩu cũ</label><input id="cpOld" type="password" style="width:100%">
+    <label>Mật khẩu mới</label><input id="cpNew" type="password" style="width:100%">
+    <div class="row" style="margin-top:14px">
+      <button onclick="changePw()">Lưu</button>
+      <button class="ghost" onclick="hideChangePw()">Huỷ</button>
+    </div>
+    <div id="cpMsg" class="msg"></div>
+  </div>
+</div>
+
+<script>
+let KEYS=[]; let FILTER='all';
+const LIFETIME=4102444799;
+const PACK_LABEL={1:'1 ngày',3:'3 ngày',7:'7 ngày',30:'30 ngày',9999:'Lifetime'};
+
+async function api(path,method,body){
+  const opts={method:method||'GET',headers:{}};
+  if(body){opts.headers['Content-Type']='application/json';opts.body=JSON.stringify(body);}
+  const r=await fetch(path,opts); let data={};
+  try{data=await r.json();}catch(e){}
+  return {status:r.status,data};
+}
+function esc(s){return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');}
+function fmtDate(ts){if(!ts)return'';if(ts>=LIFETIME)return'Lifetime';const d=new Date(ts*1000);
+  return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0')+' '+String(d.getHours()).padStart(2,'0')+':'+String(d.getMinutes()).padStart(2,'0');}
+function timeLeft(ts){if(!ts||ts>=LIFETIME)return'';let s=ts-Math.floor(Date.now()/1000);
+  if(s<=0)return'<span style="color:#f85149">hết hạn</span>';
+  const d=Math.floor(s/86400),h=Math.floor(s%86400/3600);
+  if(d>0)return d+' ngày '+h+'h';const m=Math.floor(s%3600/60);return h>0?h+'h '+m+'m':m+' phút';}
+
+function renderStats(s){
+  const packs=Object.entries(s.by_pack||{}).map(([p,n])=>({p,n})).filter(x=>x.n>0).sort((a,b)=>a.p-b.p);
+  document.getElementById('stats').innerHTML=
+    `<div class="stat"><b>${s.total||0}</b><span>Tổng</span></div>`+
+    `<div class="stat"><b style="color:var(--ok)">${s.active||0}</b><span>Active</span></div>`+
+    `<div class="stat"><b style="color:#f85149">${s.revoked||0}</b><span>Revoked</span></div>`+
+    `<div class="stat"><b style="color:var(--warn)">${s.expiring_soon||0}</b><span>Hết hạn &lt;3 ngày</span></div>`+
+    packs.map(x=>`<div class="stat"><b>${x.n}</b><span>Gói ${PACK_LABEL[x.p]||x.p}</span></div>`).join('');
+}
+function renderKeys(){
+  const q=(document.getElementById('q').value||'').toLowerCase();
+  const rows=KEYS.filter(k=>FILTER==='all'||k.status===FILTER)
+    .filter(k=>!q||k.name.toLowerCase().includes(q)||(k.note||'').toLowerCase().includes(q));
+  const tbody=document.getElementById('keysBody');
+  document.getElementById('emptyRow').style.display=rows.length?'none':'block';
+  tbody.innerHTML=rows.map(k=>{
+    const active=k.status==='active',lt=k.expires_at>=LIFETIME;
+    return `<tr>
+      <td><b>${esc(k.name)}</b> <button class="copy" onclick="copyKey(this,'${esc(k.name)}')">⧉</button></td>
+      <td>${PACK_LABEL[k.pack]||k.pack}</td><td>${fmtDate(k.expires_at)}</td><td>${timeLeft(k.expires_at)}</td>
+      <td><span class="badge ${active?'active':'revoked'} ${lt?'lifetime':''}">${k.status}${lt?' • LIFETIME':''}</span></td>
+      <td class="mut">${k.hwid==='*'||!k.hwid?'(không)':esc(String(k.hwid).slice(0,14))}</td>
+      <td class="mut" style="max-width:150px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${esc(k.note||'')}">${esc(k.note||'')}</td>
+      <td class="actions">${active?`<button class="warn" onclick="doGrant('${esc(k.name)}')">+gia hạn</button><button class="ghost" onclick="resetNote('${esc(k.name)}')">note</button><button class="danger" onclick="doRevoke('${esc(k.name)}')">Revoke</button>`:`<button class="ghost" onclick="doReset('${esc(k.name)}')">Kích hoạt lại</button>`}</td>
+    </tr>`;}).join('');
+}
+function copyKey(btn,name){navigator.clipboard.writeText(name).then(()=>{btn.textContent='✓';setTimeout(()=>btn.textContent='⧉',900);});}
+function setFilter(f,btn){FILTER=f;document.querySelectorAll('#filters button').forEach(b=>b.style.borderColor='var(--border)');if(btn)btn.style.borderColor='var(--accent2)';renderKeys();}
+function showMsg(id,ok,text){const el=document.getElementById(id);el.className='msg show '+(ok?'ok':'err');el.textContent=text;setTimeout(()=>el.classList.remove('show'),4000);}
+
+async function doLogin(){
+  const username=document.getElementById('lUser').value.trim();
+  const password=document.getElementById('lPass').value;
+  const {status}=await api('/api/login','POST',{username,password});
+  if(status===200){showMain();}else{showMsg('loginMsg',false,'Sai tài khoản hoặc mật khẩu');}
+}
+async function checkAuth(){
+  const {status,data}=await api('/api/me');
+  if(status===200){document.getElementById('whoAmI').textContent='👤 '+data.username;showMain();}
+  else showLogin();
+}
+function showLogin(){document.getElementById('login').style.display='block';document.getElementById('main').style.display='none';document.getElementById('chgpw').style.display='none';document.getElementById('lUser').focus();}
+function showMain(){
+  document.getElementById('login').style.display='none';
+  document.getElementById('main').style.display='block';
+  document.getElementById('chgpw').style.display='none';
+  loadKeys();
+}
+async function loadKeys(){
+  const {data}=await api('/api/keys');KEYS=Array.isArray(data)?data:[];renderKeys();
+  const s=await api('/api/stats');if(s.data&&s.data.total!==undefined)renderStats(s.data);
+}
+async function doCreate(){
+  const name=document.getElementById('newName').value.trim();
+  const pack=parseInt(document.getElementById('newPack').value);
+  const note=document.getElementById('newNote').value.trim();
+  const {status,data}=await api('/api/create','POST',{name,pack,note});
+  if(status===200&&data&&data.name){
+    showMsg('createMsg',true,'✅ Đã tạo `'+data.name+'` — '+PACK_LABEL[data.pack]+' — hết hạn '+fmtDate(data.expires_at));
+    document.getElementById('newName').value='';document.getElementById('newNote').value='';loadKeys();
+  }else showMsg('createMsg',false,(data&&data.error)||'Lỗi tạo');
+}
+async function doGrant(name){const pack=prompt('Gia hạn '+name+' thêm (ngày):','7');if(pack==null)return;
+  const {status,data}=await api('/api/grant','POST',{name,pack:parseInt(pack)});status===200?loadKeys():alert((data&&data.error)||'Lỗi');}
+async function doRevoke(name){if(!confirm('Thu hồi key '+name+'?'))return;
+  const {status,data}=await api('/api/revoke','POST',{name});status===200?loadKeys():alert((data&&data.error)||'Lỗi');}
+async function doReset(name){const {status,data}=await api('/api/reset','POST',{name});status===200?loadKeys():alert((data&&data.error)||'Lỗi');}
+async function resetNote(name){const note=prompt('Ghi chú cho '+name+':');if(note==null)return;
+  const {status,data}=await api('/api/note','POST',{name,note});status===200?loadKeys():alert((data&&data.error)||'Lỗi');}
+async function downloadExport(){const r=await fetch('/api/export');const blob=await r.blob();
+  const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download='brmod_keys_export.json';a.click();}
+function toggleImport(){const b=document.getElementById('importBox');b.style.display=b.style.display==='none'?'block':'none';}
+async function doImport(){
+  let records;try{records=JSON.parse(document.getElementById('importText').value);}catch(e){alert('JSON không hợp lệ');return;}
+  const {status,data}=await api('/api/import','POST',{records});
+  if(status===200)alert('Import xong: '+data.imported.length+' mới, '+data.skipped.length+' trùng (bỏ)');else alert((data&&data.error)||'Lỗi');
+  loadKeys();
+}
+function showChangePw(){document.getElementById('main').style.display='none';document.getElementById('chgpw').style.display='block';}
+function hideChangePw(){document.getElementById('chgpw').style.display='none';document.getElementById('main').style.display='block';}
+async function changePw(){
+  const oldP=document.getElementById('cpOld').value,newP=document.getElementById('cpNew').value;
+  const {status,data}=await api('/api/change-password','POST',{old:oldP,new:newP});
+  if(status===200){showMsg('cpMsg',true,'✅ Đã đổi mật khẩu');setTimeout(hideChangePw,900);}else showMsg('cpMsg',false,(data&&data.error)||'Lỗi');
+}
+async function logout(){await api('/api/logout','POST');showLogin();}
+
+checkAuth();
+setInterval(()=>{if(FILTER==='all')renderKeys();},15000);
+</script>
+</body>
+</html>
