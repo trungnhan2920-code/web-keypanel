@@ -1,28 +1,25 @@
 """BRMods Key Panel v2 — web quản lý key BRMods (time thật) với auth tài khoản.
 
 Auth:
-  - người dùng: users table (username, PBKDF2-SHA256 password hash, role)
-  - login username+password -> session token (random, lưu DB, hết hạn 7 ngày)
-  - cookie `panel_session` = token (không lộ password)
-  - tài khoản admin đầu tiên: env ADMIN_USERNAME / ADMIN_PASSWORD
-    (mặc định admin / admin123 — PHẢI đổi trên Render)
+  - users table (username, PBKDF2-SHA256 password hash, role)
+  - login username+password -> session token (random, DB, hết hạn 7 ngày)
+  - cookie panel_session = token (không lộ password)
+  - admin đầu tiên: env ADMIN_USERNAME / ADMIN_PASSWORD (mặc định admin/admin123)
 Endpoint:
   POST /api/login {username,password}      -> set cookie
   POST /api/logout
-  GET  /api/me                             -> {username, role}
+  GET  /api/me
   POST /api/register {username,password}   (admin)
   POST /api/change-password {old,new}      (self)
   Key (cần auth):
   GET  /api/stats | /api/keys | /api/export
-  POST /api/create {name,pack,note}
-  POST /api/grant {name,pack}
+  POST /api/create {name,pack,note} | /api/grant {name,pack}
   POST /api/revoke | /api/reset | /api/note
-  POST /api/import {records:[...]}         (JSON array import, upsert)
+  POST /api/import {records:[...]}
   Public (cho auth-swap cloud):
-  GET  /api/verify?key=...                 -> {ok, valid, status, pack, expires_at, hwid, message}
-
-Deploy:  gunicorn app:app --bind 0.0.0.0:$PORT --workers 2 --threads 4
-Local :  python app.py (127.0.0.1:8080)
+  GET  /api/verify?key=...
+Deploy: gunicorn app:app --bind 0.0.0.0:$PORT --workers 2 --threads 4
+Local : python app.py (127.0.0.1:8080)
 """
 import hashlib
 import hmac
@@ -31,6 +28,7 @@ import os
 import secrets
 import sqlite3
 import time
+import traceback
 
 import key_store as ks
 
@@ -60,7 +58,8 @@ def _db():
 def _ensure_admin():
     c = _db()
     if not c.execute("SELECT username FROM users LIMIT 1").fetchone():
-        c.execute("INSERT INTO users(username,pass_hash,role,created_at) VALUES(?,?,?,?)",
+        # INSERT OR IGNORE: an toàn khi nhiều worker boot cùng lúc (gunicorn)
+        c.execute("INSERT OR IGNORE INTO users(username,pass_hash,role,created_at) VALUES(?,?,?,?)",
                   (ADMIN_USERNAME, _hash(ADMIN_PASSWORD), "admin", int(time.time())))
         c.commit()
     c.close()
@@ -113,13 +112,14 @@ def _user(username):
 
 
 def _logout(token):
+    if not token:
+        return
     c = _db()
     c.execute("DELETE FROM sessions WHERE token=?", (token,))
     c.commit()
     c.close()
 
 
-# ---------------- http helpers ----------------
 def fail(msg):
     return {"ok": False, "error": msg}
 
@@ -138,6 +138,18 @@ def _resp(start_response, code, body_bytes, ctype="application/json; charset=utf
 
 class WSGIApp:
     def __call__(self, environ, start_response):
+        try:
+            return self._dispatch(environ, start_response)
+        except Exception:
+            tb = traceback.format_exc()
+            try:
+                open(os.path.join(HERE, "data", "error.log"), "a", encoding="utf-8").write(tb + "\n")
+            except Exception:
+                pass
+            out = _json(fail("server error"))
+            return _resp(start_response, "500 Internal Server Error", out)
+
+    def _dispatch(self, environ, start_response):
         path = environ.get("PATH_INFO", "/")
         method = environ.get("REQUEST_METHOD", "GET")
         try:
@@ -145,7 +157,7 @@ class WSGIApp:
         except Exception:
             length = 0
         body = environ.get("wsgi.input").read(length) if length else b""
-        cookie = (environ.get("HTTP_COOKIE") or "")
+        cookie = environ.get("HTTP_COOKIE") or ""
         token = ""
         for part in cookie.split(";"):
             part = part.strip()
@@ -163,7 +175,7 @@ class WSGIApp:
         if not path.startswith("/api/"):
             return _resp(start_response, "404 Not Found", b"not found", "text/plain")
 
-        # ---------- public ----------
+        # ---------- public: verify (auth-swap cloud) ----------
         if path == "/api/verify" and method == "GET":
             from urllib.parse import parse_qs
             qs = parse_qs(environ.get("QUERY_STRING", "") or "")
@@ -188,7 +200,7 @@ class WSGIApp:
                 "message": msg,
             }))
 
-        # ---------- public auth endpoints ----------
+        # ---------- public auth ----------
         if path == "/api/login" and method == "POST":
             try:
                 data = json.loads(body.decode("utf-8"))
@@ -197,7 +209,7 @@ class WSGIApp:
             u = _user(str(data.get("username", "")))
             if u and _verify(str(data.get("password", "")), u["pass_hash"]):
                 token = _create_session(u["username"])
-                return _resp(start_response, "200 OK", _json(u["username"]),
+                return _resp(start_response, "200 OK", _json({"username": u["username"], "role": u["role"]}),
                              extra=[("Set-Cookie", "%s=%s; Path=/; HttpOnly; Max-Age=%d"
                                      % (COOKIE, token, SESSION_DAYS * 86400))])
             return _resp(start_response, "401 Unauthorized", _json(fail("sai tài khoản/mật khẩu")))
@@ -210,8 +222,6 @@ class WSGIApp:
         me = _user_by_session(token)
         if not me:
             return _resp(start_response, "401 Unauthorized", _json(fail("unauthorized")))
-        authed = True
-        is_admin = me["role"] == "admin"
 
         try:
             data = json.loads(body.decode("utf-8")) if body else {}
@@ -220,8 +230,10 @@ class WSGIApp:
 
         if path == "/api/me":
             return _resp(start_response, "200 OK", _json(me))
+
+        # v2: mọi endpoint key đều cần admin
+        is_admin = me["role"] == "admin"
         if not is_admin:
-            # user không admin chỉ xem được /api/me — nhưng v2 chỉ có admin cho gọn
             return _resp(start_response, "403 Forbidden", _json(fail("cần tài khoản admin")))
 
         if path == "/api/register" and method == "POST":
@@ -230,7 +242,8 @@ class WSGIApp:
             if not uname or len(pw) < 6:
                 return _resp(start_response, "400 Bad Request", _json(fail("username rỗng / password >=6 ký tự")))
             c = _db()
-            if c.execute("SELECT username FROM users WHERE username=?", (uname,)).fetchone():
+            cur = c.execute("SELECT username FROM users WHERE username=?", (uname,))
+            if cur.fetchone():
                 c.close()
                 return _resp(start_response, "400 Bad Request", _json(fail("username đã tồn tại")))
             c.execute("INSERT INTO users(username,pass_hash,role,created_at) VALUES(?,?,?,?)",
@@ -332,17 +345,19 @@ def main():
             self._run()
 
     _ensure_admin()
+    os.makedirs(os.path.join(HERE, "data"), exist_ok=True)
     port = int(os.environ.get("PORT") or os.environ.get("PANEL_PORT", 8080))
     bind = os.environ.get("PANEL_BIND", "127.0.0.1")
     srv = ThreadingHTTPServer((bind, port), H)
-    print("[%s] BRMods Key Panel v2 on http://%s:%d — admin '%s' (env ADMIN_USERNAME/PASSWORD)"
+    print("[%s] BRMods Key Panel v2 on http://%s:%d — admin '%s'"
           % (time.strftime("%H:%M:%S"), bind, port, ADMIN_USERNAME))
     srv.serve_forever()
 
 
-# gunicorn needs admin created too
+# gunicorn workers: ensure admin + data/ dir exist
 try:
     _ensure_admin()
+    os.makedirs(os.path.join(HERE, "data"), exist_ok=True)
 except Exception:
     pass
 
